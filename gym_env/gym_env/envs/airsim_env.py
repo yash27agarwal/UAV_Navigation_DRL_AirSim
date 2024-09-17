@@ -3,7 +3,6 @@ from gym import spaces
 import airsim
 from configparser import NoOptionError
 import keyboard
-
 import torch as th
 import numpy as np
 import math
@@ -15,17 +14,17 @@ from .dynamics.fixedwing_simple import FixedwingDynamicsSimple
 # from .lgmd.LGMD import LGMD
 
 from PyQt5 import QtCore
-from PyQt5.QtCore import pyqtSignal
+# from PyQt5.QtCore import pyqtSignal
 
 
 class AirsimGymEnv(gym.Env, QtCore.QThread):
     # pyqt signal for visualization
-    action_signal = pyqtSignal(int, np.ndarray)
-    state_signal = pyqtSignal(int, np.ndarray)
-    attitude_signal = pyqtSignal(int, np.ndarray, np.ndarray)
-    reward_signal = pyqtSignal(int, float, float)
-    pose_signal = pyqtSignal(np.ndarray, np.ndarray, np.ndarray, np.ndarray)
-    lgmd_signal = pyqtSignal(float, float, np.ndarray)
+    # action_signal = pyqtSignal(int, np.ndarray)
+    # state_signal = pyqtSignal(int, np.ndarray)
+    # attitude_signal = pyqtSignal(int, np.ndarray, np.ndarray)
+    # reward_signal = pyqtSignal(int, float, float)
+    # pose_signal = pyqtSignal(np.ndarray, np.ndarray, np.ndarray, np.ndarray)
+    # lgmd_signal = pyqtSignal(float, float, np.ndarray)
 
     def __init__(self) -> None:
         super().__init__()
@@ -179,18 +178,32 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
 
         # observation space vector or image
         if self.perception_type == 'vector' or self.perception_type == 'lgmd':
-            self.observation_space = spaces.Box(low=0, high=1,
-                                                shape=(1,
-                                                       self.cnn_feature_length + self.state_feature_length),
-                                                dtype=np.float32)
+            # self.observation_space = spaces.Box(low=0, high=1,
+            #                                     shape=(1,
+            #                                            self.cnn_feature_length + self.state_feature_length),
+            #                                     dtype=np.float32)
+            print("Warning. Not able to initialize observation space.... Line 182, airsim_env.py")
         else:
-            self.observation_space = spaces.Box(low=0, high=255,
-                                                shape=(self.screen_height,
-                                                       self.screen_width, 2),
-                                                dtype=np.uint8)
+            # self.observation_space = spaces.Box(low=0, high=255,
+            #                                     shape=(self.screen_height,
+            #                                            self.screen_width, 2),
+            #                                     dtype=np.uint8)
+            
+            self.observation_space = spaces.Dict({
+                "depth_image" : spaces.Box(low=0, high=255,
+                                            shape=(64,
+                                                    64, 3),
+                                            dtype=np.uint8),
+                "velocity" : spaces.Box(low=0, high=1, 
+                                        shape=(2,), dtype=np.float32),
+                "orientation" : spaces.Box(low=0, high=1,
+                                           shape=(4,), dtype=np.float32),
+                "heading" : spaces.Box(low = 0, high=1, shape=(3,),
+                                       dtype=np.float32)
+            })
 
         self.action_space = self.dynamic_model.action_space
-
+        
         self.reward_type = None
         try:
             self.reward_type = cfg.get('options', 'reward_type')
@@ -227,6 +240,8 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
 
         # get new obs
         obs = self.get_obs()
+
+        # -------------------------------same function being called 2 times. can improve this------------------------------------------------
         done = self.is_done()
         info = {
             'is_success': self.is_in_desired_pose(),
@@ -234,6 +249,8 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
             'is_not_in_workspace': self.is_not_inside_workspace(),
             'step_num': self.step_num
         }
+        ###############################################################################################
+
         if done:
             print(info)
 
@@ -257,10 +274,10 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
         # ----------------print info---------------------------
         self.print_train_info_airsim(action, obs, reward, info)
 
-        if self.cfg.get('options', 'dynamic_name') == 'SimpleFixedwing':
-            self.set_pyqt_signal_fixedwing(action, reward, done)
-        else:
-            self.set_pyqt_signal_multirotor(action, reward)
+        # if self.cfg.get('options', 'dynamic_name') == 'SimpleFixedwing':
+        #     self.set_pyqt_signal_fixedwing(action, reward, done)
+        # else:
+        #     self.set_pyqt_signal_multirotor(action, reward)
 
         if self.keyboard_debug:
             action_copy = np.copy(action)
@@ -305,38 +322,85 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
 # ! -------------------------get obs------------------------------------------
     def get_obs(self):
         if self.perception_type == 'vector':
-            obs = self.get_obs_vector()
+            return self.get_obs_vector()
         elif self.perception_type == 'lgmd':
-            obs = self.get_obs_lgmd()
+            return self.get_obs_lgmd()
         else:
-            obs = self.get_obs_image()
-
-        return obs
+            return self.get_obs_image()
+        
 
     def get_obs_image(self):
-        # Normal mode: get depth image then transfer to matrix with state
-        # 1. get current depth image and transfer to 0-255  0-20m 255-0m
+        # Step 1: Get current depth image (before processing)
         image = self.get_depth_image()  # 0-6550400.0 float 32
-        image_resize = cv2.resize(image, (self.screen_width,
-                                          self.screen_height))
+
+        # Resize the image to the desired screen width and height
+        image_resize = cv2.resize(image, (224, 224))
         self.min_distance_to_obstacles = image.min()
-        # switch 0 and 255
-        image_scaled = np.clip(
-            image_resize, 0, self.max_depth_meters) / self.max_depth_meters * 255
-        image_scaled = 255 - image_scaled
+
+        # cv2.imshow('Original Depth Image', image_resize.astype(np.uint8))
+
+        # Step 2: Scale and invert the depth image
+        image_scaled = np.clip(image_resize, 0, self.max_depth_meters) / self.max_depth_meters  * 255
+        image_scaled = 255 - image_scaled  # Invert the depth (closer = brighter)
         image_uint8 = image_scaled.astype(np.uint8)
+        rgb_image = cv2.cvtColor(image_uint8, cv2.COLOR_GRAY2RGB)
+        rgb_image = cv2.resize(rgb_image, (64,  64))
+        # image_uint8 = (image_float32 * 255).astype(np.uint8)
 
-        # 2. get current state (relative_pose, velocity)
-        state_feature_array = np.zeros((self.screen_height, self.screen_width))
-        state_feature = self.dynamic_model._get_state_feature()
-        state_feature_array[0, 0:self.state_feature_length] = state_feature
+        # Display the processed depth image using OpenCV
+        # cv2.imshow('Processed Depth Image', image_uint8)
 
-        # 3. generate image with state
-        image_with_state = np.array([image_uint8, state_feature_array])
-        image_with_state = image_with_state.swapaxes(0, 2)
-        image_with_state = image_with_state.swapaxes(0, 1)
+        # height, width = image_uint8.shape
+        # print (height, width, 1)
 
-        return image_with_state
+        # Step 3: Get the current state (relative_pose, velocity)
+        velocity_vector, orientation_vector, desired_heading = self.dynamic_model._get_state_feature()
+        obs = {
+            "depth_image" : rgb_image,
+            "velocity" : velocity_vector,
+            "orientation" : orientation_vector,
+            "heading" : desired_heading
+        }
+
+        cv2.waitKey(1)  
+        return obs
+
+        # state_feature_array = np.zeros((self.screen_height, self.screen_width))
+        # state_feature = self.dynamic_model._get_state_feature()
+        # state_feature_array[0, 0:self.state_feature_length] = state_feature
+
+        # # Step 4: Combine depth image and state feature
+        # image_with_state = np.array([image_uint8, state_feature_array])
+        # image_with_state = image_with_state.swapaxes(0, 2)
+        # image_with_state = image_with_state.swapaxes(0, 1)
+
+        # # Add a small wait time to allow OpenCV to display the images, without stopping the simulator
+        
+
+    # def get_obs_image(self):
+    #     # Normal mode: get depth image then transfer to matrix with state
+    #     # 1. get current depth image and transfer to 0-255  0-20m 255-0m
+    #     image = self.get_depth_image()  # 0-6550400.0 float 32
+    #     image_resize = cv2.resize(image, (self.screen_width,
+    #                                       self.screen_height))
+    #     self.min_distance_to_obstacles = image.min()
+    #     # switch 0 and 255
+    #     image_scaled = np.clip(
+    #         image_resize, 0, self.max_depth_meters) / self.max_depth_meters * 255
+    #     image_scaled = 255 - image_scaled
+    #     image_uint8 = image_scaled.astype(np.uint8)
+
+    #     # 2. get current state (relative_pose, velocity)
+    #     state_feature_array = np.zeros((self.screen_height, self.screen_width))
+    #     state_feature = self.dynamic_model._get_state_feature()
+    #     state_feature_array[0, 0:self.state_feature_length] = state_feature
+
+    #     # 3. generate image with state
+    #     image_with_state = np.array([image_uint8, state_feature_array])
+    #     image_with_state = image_with_state.swapaxes(0, 2)
+    #     image_with_state = image_with_state.swapaxes(0, 1)
+
+    #     return image_with_state
 
     def get_depth_gray_image(self):
         # get depth and rgb image
@@ -523,13 +587,19 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
         reward_reach = 10
         reward_crash = -20
         reward_outside = -10
-        
-        if self.env_name == 'NH_center':
-            distance_reward_coef = 500
-        else:
-            distance_reward_coef = 50
 
+        if self.is_in_desired_pose():
+            return reward_reach
+        if self.is_crashed():
+            return reward_crash
+        if self.is_not_inside_workspace():
+            return reward_outside
+        
         if not done:
+            if self.env_name == 'NH_center':
+                distance_reward_coef = 500
+            else:
+                distance_reward_coef = 50
             # 1 - goal reward
             distance_now = self.get_distance_to_goal_3d()
             reward_distance = distance_reward_coef * (self.previous_distance_from_des_point - distance_now) / \
@@ -562,6 +632,8 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
             # add yaw_rate cost
             yaw_speed_cost = abs(action[-1]) / self.dynamic_model.yaw_rate_max_rad
 
+            self.dynamic_model._get_state_feature_old()
+
             if self.dynamic_model.navigation_3d:
                 # add action and z error cost
                 v_z_cost = ((abs(action[1]) / self.dynamic_model.v_z_max)**2)
@@ -576,14 +648,7 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
 
             reward = reward_distance - 0.1 * punishment_pose - 0.2 * \
                 punishment_obs - 0.1 * punishment_action - 0.5 * yaw_error_cost
-        else:
-            if self.is_in_desired_pose():
-                reward = reward_reach
-            if self.is_crashed():
-                reward = reward_crash
-            if self.is_not_inside_workspace():
-                reward = reward_outside
-
+            
         return reward
 
     def compute_reward_final_fixedwing(self, done, action):
@@ -945,62 +1010,62 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
         self.client.simPrintLogMessage('reward: ', "{:4.4f} total: {:4.4f}".format(
             reward, self.cumulated_episode_reward))
         self.client.simPrintLogMessage('Info: ', str(info))
-        self.client.simPrintLogMessage(
-            'Feature_norm: ', str(self.dynamic_model.state_norm))
-        self.client.simPrintLogMessage(
-            'Feature_raw: ', str(self.dynamic_model.state_raw))
+        # self.client.simPrintLogMessage(
+        #     'Feature_norm: ', str(self.dynamic_model.state_norm))
+            # self.client.simPrintLogMessage(
+            #     'Feature_raw: ', str(self.dynamic_model.state_raw))
         self.client.simPrintLogMessage(
             'Min_depth: ', str(self.min_distance_to_obstacles))
 
-    def set_pyqt_signal_fixedwing(self, action, reward, done):
-        """
-        emit signals for pyqt plot
-        """
-        step = int(self.total_step)
-        # action: v_xy, v_z, roll
+    # def set_pyqt_signal_fixedwing(self, action, reward, done):
+    #     """
+    #     emit signals for pyqt plot
+    #     """
+    #     step = int(self.total_step)
+    #     # action: v_xy, v_z, roll
 
-        action_plot = np.array([10, 0, math.degrees(action[0])])
+    #     action_plot = np.array([10, 0, math.degrees(action[0])])
 
-        state = self.dynamic_model.state_raw  # distance, relative yaw, roll
+    #     state = self.dynamic_model.state_raw  # distance, relative yaw, roll
 
-        # state out 6: d_xy, d_z, yaw_error, v_xy, v_z, roll
-        # state in  3: d_xy, yaw_error, roll
-        state_output = np.array([state[0], 0, state[1], 10, 0, state[2]])
+    #     # state out 6: d_xy, d_z, yaw_error, v_xy, v_z, roll
+    #     # state in  3: d_xy, yaw_error, roll
+    #     state_output = np.array([state[0], 0, state[1], 10, 0, state[2]])
 
-        self.action_signal.emit(step, action_plot)
-        self.state_signal.emit(step, state_output)
+    #     self.action_signal.emit(step, action_plot)
+    #     self.state_signal.emit(step, state_output)
 
-        # other values
-        self.attitude_signal.emit(step, np.asarray(self.dynamic_model.get_attitude(
-        )), np.asarray(self.dynamic_model.get_attitude_cmd()))
-        self.reward_signal.emit(step, reward, self.cumulated_episode_reward)
-        self.pose_signal.emit(np.asarray(self.dynamic_model.goal_position), np.asarray(
-            self.dynamic_model.start_position), np.asarray(self.dynamic_model.get_position()), np.asarray(self.trajectory_list))
+    #     # other values
+    #     self.attitude_signal.emit(step, np.asarray(self.dynamic_model.get_attitude(
+    #     )), np.asarray(self.dynamic_model.get_attitude_cmd()))
+    #     self.reward_signal.emit(step, reward, self.cumulated_episode_reward)
+    #     self.pose_signal.emit(np.asarray(self.dynamic_model.goal_position), np.asarray(
+    #         self.dynamic_model.start_position), np.asarray(self.dynamic_model.get_position()), np.asarray(self.trajectory_list))
 
-        # lgmd_signal = pyqtSignal(float, float, np.ndarray)  min_dist, lgmd_out, lgmd_split
-        self.lgmd_signal.emit(self.min_distance_to_obstacles, 0,  self.feature_all[:-1])
+    #     # lgmd_signal = pyqtSignal(float, float, np.ndarray)  min_dist, lgmd_out, lgmd_split
+    #     self.lgmd_signal.emit(self.min_distance_to_obstacles, 0,  self.feature_all[:-1])
 
-    def set_pyqt_signal_multirotor(self, action, reward):
-        step = int(self.total_step)
+    # def set_pyqt_signal_multirotor(self, action, reward):
+    #     step = int(self.total_step)
 
-        # transfer 2D state and action to 3D
-        state = self.dynamic_model.state_raw
-        if self.dynamic_model.navigation_3d:
-            action_output = action
-            state_output = state
-        else:
-            action_output = np.array([action[0], 0, action[1]])
-            state_output = np.array([state[0], 0, state[2], state[3], 0, state[5]])
+    #     # transfer 2D state and action to 3D
+    #     state = self.dynamic_model.state_raw
+    #     if self.dynamic_model.navigation_3d:
+    #         action_output = action
+    #         state_output = state
+    #     else:
+    #         action_output = np.array([action[0], 0, action[1]])
+    #         state_output = np.array([state[0], 0, state[2], state[3], 0, state[5]])
 
-        self.action_signal.emit(step, action_output)
-        self.state_signal.emit(step, state_output)
+    #     self.action_signal.emit(step, action_output)
+    #     self.state_signal.emit(step, state_output)
 
-        # other values
-        self.attitude_signal.emit(step, np.asarray(self.dynamic_model.get_attitude(
-        )), np.asarray(self.dynamic_model.get_attitude_cmd()))
-        self.reward_signal.emit(step, reward, self.cumulated_episode_reward)
-        self.pose_signal.emit(np.asarray(self.dynamic_model.goal_position), np.asarray(
-            self.dynamic_model.start_position), np.asarray(self.dynamic_model.get_position()), np.asarray(self.trajectory_list))
+    #     # other values
+    #     self.attitude_signal.emit(step, np.asarray(self.dynamic_model.get_attitude(
+    #     )), np.asarray(self.dynamic_model.get_attitude_cmd()))
+    #     self.reward_signal.emit(step, reward, self.cumulated_episode_reward)
+    #     self.pose_signal.emit(np.asarray(self.dynamic_model.goal_position), np.asarray(
+    #         self.dynamic_model.start_position), np.asarray(self.dynamic_model.get_position()), np.asarray(self.trajectory_list))
 
     def visual_log_q_value(self, q_value, action, reward):
         '''

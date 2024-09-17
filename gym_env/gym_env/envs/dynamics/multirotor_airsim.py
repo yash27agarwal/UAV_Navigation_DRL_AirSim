@@ -78,7 +78,7 @@ class MultirotorDynamicsAirsim():
 
         # reset start
         yaw_noise = self.start_random_angle * np.random.random()
-        # set airsim pose
+        # set airsim pose   
         pose = self.client.simGetVehiclePose()
         pose.position.x_val = self.start_position[0]
         pose.position.y_val = self.start_position[1]
@@ -188,14 +188,14 @@ class MultirotorDynamicsAirsim():
         
         return goal_x, goal_y
 
-    def _get_state_feature(self):
+    def _get_state_feature_old(self):
         '''
         @description: update and get current uav state and state_norm 
         @param {type} 
         @return: state_norm
                     normalized state range 0-255
         '''
-        
+
         distance = self.get_distance_to_goal_2d()
         relative_yaw = self._get_relative_yaw()  # return relative yaw -pi to pi 
         relative_pose_z = self.get_position()[2] - self.goal_position[2]  # current position z is positive
@@ -215,9 +215,9 @@ class MultirotorDynamicsAirsim():
         self.state_raw = np.array([distance, relative_pose_z,  math.degrees(
             relative_yaw), linear_velocity_xy, linear_velocity_z,  math.degrees(velocity[2])])
         state_norm = np.array([distance_norm, vertical_distance_norm, relative_yaw_norm,
-                               linear_velocity_norm, linear_velocity_z_norm, angular_velocity_norm])
+                                linear_velocity_norm, linear_velocity_z_norm, angular_velocity_norm])
         state_norm = np.clip(state_norm, 0, 255)
-        
+
         if self.navigation_3d:
             if self.using_velocity_state == False:
                 state_norm = state_norm[:3]
@@ -228,8 +228,52 @@ class MultirotorDynamicsAirsim():
                 state_norm = state_norm[:2]
 
         self.state_norm = state_norm
+
+        # return state_norm
+
+    def _get_state_feature(self):
+        state = self.client.getMultirotorState()
+
+        # Get position (in meters)
+        position = state.kinematics_estimated.position
+        x = position.x_val
+        y = position.y_val
+        z = -position.z_val
+
+        # Get orientation (in quaternions)
+        orientation = state.kinematics_estimated.orientation
+        orientation_vector = np.array([orientation.w_val,
+                                       orientation.x_val,
+                                       orientation.y_val,
+                                       orientation.z_val], np.float32)
+        scaled_orientation_vector = (orientation_vector + 1) / 2 
+
+        # Get velocity (in m/s)
+        velocity = state.kinematics_estimated.linear_velocity
+        vx = velocity.x_val 
+        vy = velocity.y_val
+        vz = velocity.z_val
+
+        v_xy = math.sqrt(pow(vx, 2) + pow(vy, 2))
+        v_xy = (v_xy - self.v_xy_min) / (self.v_xy_max - self.v_xy_min) 
+        v_z =  (vz + self.v_z_max) / (2*self.v_z_max)
+        velocity_vector = np.array([v_xy, v_z], np.float32)
+
+        desired_vector = np.array([x - self.goal_position[0], 
+                                    y - self.goal_position[1],
+                                    z - self.goal_position[2]], np.float32)
         
-        return state_norm
+        magnitude = np.linalg.norm(desired_vector)
+
+        if magnitude < 10e-5:
+            desired_heading = np.array([0, 0, 0], np.float32)
+        else:
+            desired_heading = desired_vector / magnitude 
+
+        scaled_desired_heading = (desired_heading + 1) / 2
+
+        return velocity_vector, scaled_orientation_vector, scaled_desired_heading
+
 
     def _get_relative_yaw(self):
         '''

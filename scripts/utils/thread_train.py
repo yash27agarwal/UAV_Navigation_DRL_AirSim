@@ -1,4 +1,4 @@
-from .custom_policy_sb3 import CNN_FC, CNN_GAP, CNN_GAP_BN, No_CNN, CNN_MobileNet, CNN_GAP_new
+from custom_policy_sb3 import CNN_FC, CNN_GAP, CNN_GAP_BN, No_CNN, CNN_MobileNet, CNN_GAP_new
 import datetime
 import gym
 import gym_env
@@ -42,7 +42,7 @@ class TrainingThread(QtCore.QThread):
     def __init__(self, config):
         super(TrainingThread, self).__init__()
         print("init training thread")
-
+        
         # config
         self.cfg = ConfigParser()
         self.cfg.read(config)
@@ -53,6 +53,9 @@ class TrainingThread(QtCore.QThread):
         # make gym environment
         self.env = gym.make('airsim-env-v0')
         self.env.set_config(self.cfg)
+
+        print("Observation space:", self.env.observation_space)
+        print("Action space:", self.env.action_space)
 
         wandb_name = self.cfg.get(
             'options', 'policy_name') + '-' + self.cfg.get('options', 'algo')

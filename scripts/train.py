@@ -1,30 +1,29 @@
 import gym
-import gym_airsim_multirotor
+import gym_env
 import datetime
 import os
-
 import torch as th
 import numpy as np
-
 from stable_baselines3 import TD3, PPO
 from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
 from stable_baselines3.common.logger import configure
-from utils.custom_policy_sb3 import CustomNoCNN, CustomCNN_GAP, CustomCNN_fc, CustomCNN_mobile
+# from utils.custom_policy_sb3 import CustomNoCNN, CustomCNN_GAP, CustomCNN_fc, CustomCNN_mobile
+from scripts.utils.custom_policy_sb3 import CNN_FC, CNN_GAP, CNN_GAP_BN, No_CNN, CNN_MobileNet, CNN_GAP_new
 from stable_baselines3.common.callbacks import BaseCallback
-
 import wandb
 from wandb.integration.sb3 import WandbCallback
+from configparser import ConfigParser
 
 # wandb.init(project="MR_NH", entity="heleidsn")
 
-HOME_PATH = os.pwd()
+HOME_PATH = os.getcwd()
 print(HOME_PATH)
 
 #! ---------------step 0: custom your training process-------------------------
 method = 'pure_rl'      # 1-pure_rl 2-generate_expert_data 3-bc_rl 4-offline_rl
-policy = 'no_cnn'       # 1-cnn_fc 2-cnn_gap 3-no_cnn 4-cnn_mobile
+policy = 'CNN_FC'       # 1-cnn_fc 2-cnn_gap 3-no_cnn 4-cnn_mobile
 env_name = 'airsim_city'      # 1-trees  2-cylinder
-algo = 'td3'            # 1-ppo 2-td3
+algo = 'ppo'            # 1-ppo 2-td3
 action_num = '2d'       # 2d or 3d
 purpose = 'fixed_wing_test'        # input your training purpose
 
@@ -59,24 +58,36 @@ os.makedirs(log_path, exist_ok=True)
 os.makedirs(model_path, exist_ok=True)
 os.makedirs(config_path, exist_ok=True)
 
+
+# Config file
+config_file = 'configs/config_Maze_SimpleMultirotor_2D.ini'
+cfg = ConfigParser()
+cfg.read(config_file)
 env = gym.make('airsim-env-v0')
+env.set_config(cfg)
+
+print("Observation space:", env.observation_space)
+print("Action space:", env.action_space)
 
 #! --------------step 2: create models------------------------------------------
 feature_num_state = env.dynamic_model.state_feature_length  # state feature num
-if policy == 'cnn_fc':
+if policy == 'CNN_FC':
     feature_num_cnn = 25
-    policy_used = CustomCNN_fc
-elif policy == 'cnn_gap':
+    policy_used = CNN_FC
+elif policy == 'CNN_GAP':
     feature_num_cnn = 16
-    policy_used = CustomCNN_GAP
-elif policy == 'cnn_mobile':
+    policy_used = CNN_GAP_new
+elif policy == 'CNN_GAP_BN':
     feature_num_cnn = 32
-    policy_used = CustomCNN_mobile
-elif policy == 'no_cnn':
+    policy_used = CNN_GAP_BN
+elif policy == 'No_CNN':
     feature_num_cnn = 25
-    policy_used = CustomNoCNN
+    policy_used = No_CNN
+elif policy == 'CNN_MobileNet':
+    policy_used = CNN_MobileNet
 else:
     print('policy select error')
+    
 
 policy_kwargs = dict(
     features_extractor_class=policy_used,

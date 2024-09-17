@@ -2,5 +2,5 @@ from setuptools import setup, find_packages
 
 setup(name='gym-env',
       version='0.0.1',
-      install_requires=['gym', 'airsim']
+      install_requires=['gym', 'airsim', 'opencv-python>=3.0.0']
 )

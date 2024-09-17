@@ -1,5 +1,7 @@
 import sys
 import argparse
+# Remove ROS and local Python paths to avoid conflicts
+sys.path = [p for p in sys.path if not p.startswith('/opt/ros/noetic') and not p.startswith('/home/yash/.local')]
 
 from PyQt5 import QtWidgets
 
