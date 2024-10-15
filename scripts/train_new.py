@@ -9,6 +9,7 @@ from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckA
 from stable_baselines3.common.policies import MultiInputActorCriticPolicy
 from stable_baselines3.common.logger import configure
 from utils.custom_policy_sb3 import CNN_FC, CNN_GAP, CNN_GAP_BN, No_CNN, CNN_MobileNet, CNN_GAP_new
+from stable_baselines3.common.callbacks import CheckpointCallback
 from configparser import ConfigParser
 
 from utils.training_policies_new import CustomCombinedExtractor
@@ -47,6 +48,7 @@ class AirSimRLTrainer:
         self.log_path = os.path.join(self.file_path, 'log')
         self.model_path = os.path.join(self.file_path, 'models')
         self.config_path = os.path.join(self.file_path, 'config')
+        self.checkpoint_path = os.path.join(self.file_path, 'checkpoints')
         
         os.makedirs(self.log_path, exist_ok=True)
         os.makedirs(self.model_path, exist_ok=True)
@@ -63,7 +65,7 @@ class AirSimRLTrainer:
         print("Action space:", self.env.action_space)
 
     def _init_policy(self):
-        feature_num_state = self.env.dynamic_model.state_feature_length
+        # feature_num_state = self.env.dynamic_model.state_feature_length
         
         policy_dict = {
             'CNN_FC': (CNN_FC, 25),
@@ -95,6 +97,15 @@ class AirSimRLTrainer:
         # )
         
     def _init_model(self):
+
+        # Save a checkpoint every 1000 steps
+        self.checkpoint_callback = CheckpointCallback(
+        save_freq=1000,
+        save_path=self.checkpoint_path,
+        name_prefix="ppo",
+        verbose=1
+        )
+
         if self.algo == 'ppo':
             # self.policy_kwargs['net_arch'] = [64, 32]
             self.model = PPO(self.policy_used, 
@@ -131,7 +142,8 @@ class AirSimRLTrainer:
                              train_freq=(200, 'step'),
                              gradient_steps=200,
                              tensorboard_log=f"{self.log_path}_{self.env_name}_{self.algo}",
-                             buffer_size=50000, seed=0)
+                             buffer_size=50000, 
+                             seed=0)
         else:
             raise ValueError('Invalid algo input')
 
@@ -139,7 +151,8 @@ class AirSimRLTrainer:
         tb_log_name = f"{self.algo}_{self.policy}_{self.purpose}"
         self.model.learn(total_timesteps=self.total_steps,
                          log_interval=1,
-                         tb_log_name=tb_log_name)
+                         tb_log_name=tb_log_name,
+                         callback=self.checkpoint_callback)
 
     def save_model(self):
         model_name = f"{self.method}_{self.algo}_{self.action_num}_{self.policy}_{self.purpose}"

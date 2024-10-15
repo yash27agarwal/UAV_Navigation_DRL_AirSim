@@ -13,11 +13,11 @@ from .dynamics.multirotor_airsim import MultirotorDynamicsAirsim
 from .dynamics.fixedwing_simple import FixedwingDynamicsSimple
 # from .lgmd.LGMD import LGMD
 
-from PyQt5 import QtCore
+# from PyQt5 import QtCore
 # from PyQt5.QtCore import pyqtSignal
 
 
-class AirsimGymEnv(gym.Env, QtCore.QThread):
+class AirsimGymEnv(gym.Env):
     # pyqt signal for visualization
     # action_signal = pyqtSignal(int, np.ndarray)
     # state_signal = pyqtSignal(int, np.ndarray)
@@ -77,10 +77,10 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
             self.work_space_z = [0.5, 20]
             self.max_episode_steps = 1000
         elif self.env_name == 'NH_tree':
-            start_position = [110, 180, 5]
-            goal_distance = 90
+            start_position = [110, 180, 3]
+            goal_distance = 50
             self.dynamic_model.set_start(start_position, random_angle=0)
-            self.dynamic_model.set_goal(distance=90, random_angle=0)
+            self.dynamic_model.set_goal(distance=50, random_angle=0)
             self.work_space_x = [start_position[0],
                                  start_position[0] + goal_distance + 10]
             self.work_space_y = [
@@ -297,22 +297,22 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
             print('done', done)
             keyboard.wait('a')
 
-        if self.generate_q_map and (self.cfg.get('options', 'algo') == 'TD3' or self.cfg.get('options', 'algo') == 'SAC'):
-            if self.model is not None:
-                with th.no_grad():
-                    # get q-value for td3
-                    obs_copy = obs.copy()
-                    if self.perception_type != 'vector':
-                        obs_copy = obs_copy.swapaxes(0, 1)
-                        obs_copy = obs_copy.swapaxes(0, 2)
-                    q_value_current = self.model.critic(th.from_numpy(obs_copy[tuple(
-                        [None])]).float().cuda(), th.from_numpy(action[None]).float().cuda())
-                    q_1 = q_value_current[0].cpu().numpy()[0]
-                    q_2 = q_value_current[1].cpu().numpy()[0]
+        # if self.generate_q_map and (self.cfg.get('options', 'algo') == 'TD3' or self.cfg.get('options', 'algo') == 'SAC'):
+        #     if self.model is not None:
+        #         with th.no_grad():
+        #             # get q-value for td3
+        #             obs_copy = obs.copy()
+        #             if self.perception_type != 'vector':
+        #                 obs_copy = obs_copy.swapaxes(0, 1)
+        #                 obs_copy = obs_copy.swapaxes(0, 2)
+        #             q_value_current = self.model.critic(th.from_numpy(obs_copy[tuple(
+        #                 [None])]).float().cuda(), th.from_numpy(action[None]).float().cuda())
+        #             q_1 = q_value_current[0].cpu().numpy()[0]
+        #             q_2 = q_value_current[1].cpu().numpy()[0]
 
-                    q_value = min(q_1, q_2)[0]
+        #             q_value = min(q_1, q_2)[0]
 
-                    self.visual_log_q_value(q_value, action, reward)
+        #             self.visual_log_q_value(q_value, action, reward)
 
         self.step_num += 1
         self.total_step += 1
@@ -362,7 +362,7 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
             "heading" : desired_heading
         }
 
-        cv2.waitKey(1)  
+        # cv2.waitKey(1)  
         return obs
 
         # state_feature_array = np.zeros((self.screen_height, self.screen_width))
@@ -961,7 +961,9 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
     def is_crashed(self):
         is_crashed = False
         collision_info = self.client.simGetCollisionInfo()
+        
         if collision_info.has_collided or self.min_distance_to_obstacles < self.crash_distance:
+            print(collision_info)
             is_crashed = True
 
         return is_crashed
@@ -1067,57 +1069,57 @@ class AirsimGymEnv(gym.Env, QtCore.QThread):
     #     self.pose_signal.emit(np.asarray(self.dynamic_model.goal_position), np.asarray(
     #         self.dynamic_model.start_position), np.asarray(self.dynamic_model.get_position()), np.asarray(self.trajectory_list))
 
-    def visual_log_q_value(self, q_value, action, reward):
-        '''
-        Create grid map (map_size = work_space)
-        Log Q value and the best action in grid map
-        At any grid position, record:
-        1. Q value
-        2. action 0
-        3. action 1
-        4. steps
-        5. reward
-        Save image every 10k steps
-        Used only for 2D explanation
-        '''
+    # def visual_log_q_value(self, q_value, action, reward):
+    #     '''
+    #     Create grid map (map_size = work_space)
+    #     Log Q value and the best action in grid map
+    #     At any grid position, record:
+    #     1. Q value
+    #     2. action 0
+    #     3. action 1
+    #     4. steps
+    #     5. reward
+    #     Save image every 10k steps
+    #     Used only for 2D explanation
+    #     '''
 
-        # create init array if not exist
-        map_size_x = self.work_space_x[1] - self.work_space_x[0]
-        map_size_y = self.work_space_y[1] - self.work_space_y[0]
-        if not hasattr(self, 'q_value_map'):
-            self.q_value_map = np.full((9, map_size_x+1, map_size_y+1), np.nan)
+    #     # create init array if not exist
+    #     map_size_x = self.work_space_x[1] - self.work_space_x[0]
+    #     map_size_y = self.work_space_y[1] - self.work_space_y[0]
+    #     if not hasattr(self, 'q_value_map'):
+    #         self.q_value_map = np.full((9, map_size_x+1, map_size_y+1), np.nan)
 
-        # record info
-        position = self.dynamic_model.get_position()
-        pose_x = position[0]
-        pose_y = position[1]
+    #     # record info
+    #     position = self.dynamic_model.get_position()
+    #     pose_x = position[0]
+    #     pose_y = position[1]
 
-        index_x = int(np.round(pose_x) + self.work_space_x[1])
-        index_y = int(np.round(pose_y) + self.work_space_y[1])
+    #     index_x = int(np.round(pose_x) + self.work_space_x[1])
+    #     index_y = int(np.round(pose_y) + self.work_space_y[1])
 
-        # check if index valid
-        if index_x in range(0, map_size_x) and index_y in range(0, map_size_y):
-            self.q_value_map[0, index_x, index_y] = q_value
-            self.q_value_map[1, index_x, index_y] = action[0]
-            self.q_value_map[2, index_x, index_y] = action[-1]
-            self.q_value_map[3, index_x, index_y] = self.total_step
-            self.q_value_map[4, index_x, index_y] = reward
-            self.q_value_map[5, index_x, index_y] = q_value
-            self.q_value_map[6, index_x, index_y] = action[0]
-            self.q_value_map[7, index_x, index_y] = action[-1]
-            self.q_value_map[8, index_x, index_y] = reward
-        else:
-            print(
-                'Error: X:{} and Y:{} is outside of range 0~mapsize (visual_log_q_value)')
+    #     # check if index valid
+    #     if index_x in range(0, map_size_x) and index_y in range(0, map_size_y):
+    #         self.q_value_map[0, index_x, index_y] = q_value
+    #         self.q_value_map[1, index_x, index_y] = action[0]
+    #         self.q_value_map[2, index_x, index_y] = action[-1]
+    #         self.q_value_map[3, index_x, index_y] = self.total_step
+    #         self.q_value_map[4, index_x, index_y] = reward
+    #         self.q_value_map[5, index_x, index_y] = q_value
+    #         self.q_value_map[6, index_x, index_y] = action[0]
+    #         self.q_value_map[7, index_x, index_y] = action[-1]
+    #         self.q_value_map[8, index_x, index_y] = reward
+    #     else:
+    #         print(
+    #             'Error: X:{} and Y:{} is outside of range 0~mapsize (visual_log_q_value)')
 
-        # save array every record_step steps
-        record_step = self.cfg.getint('options', 'q_map_save_steps')
-        if (self.total_step+1) % record_step == 0:
-            if self.data_path is not None:
-                np.save(
-                    self.data_path + '/q_value_map_{}'.format(self.total_step+1), self.q_value_map)
-                # refresh 5 6 7 8 to record period data
-                self.q_value_map[5, :, :] = np.nan
-                self.q_value_map[6, :, :] = np.nan
-                self.q_value_map[7, :, :] = np.nan
-                self.q_value_map[8, :, :] = np.nan
+    #     # save array every record_step steps
+    #     record_step = self.cfg.getint('options', 'q_map_save_steps')
+    #     if (self.total_step+1) % record_step == 0:
+    #         if self.data_path is not None:
+    #             np.save(
+    #                 self.data_path + '/q_value_map_{}'.format(self.total_step+1), self.q_value_map)
+    #             # refresh 5 6 7 8 to record period data
+    #             self.q_value_map[5, :, :] = np.nan
+    #             self.q_value_map[6, :, :] = np.nan
+    #             self.q_value_map[7, :, :] = np.nan
+    #             self.q_value_map[8, :, :] = np.nan

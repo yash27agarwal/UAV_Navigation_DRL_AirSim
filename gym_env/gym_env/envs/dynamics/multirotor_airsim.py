@@ -2,6 +2,7 @@ import airsim
 import numpy as np
 import math
 from gym import spaces
+import sys
 
 class MultirotorDynamicsAirsim():
     '''
@@ -76,6 +77,10 @@ class MultirotorDynamicsAirsim():
         # reset goal
         self.update_goal_pose()
 
+        # X_BOUNDARY = (110, 300)  # Min and max X coordinates
+        # Y_BOUNDARY = (-50, 50)  # Min and max Y coordinates
+        # Z_BOUNDARY = (-10, -2)  # Min and max Z coordinates (height)
+
         # reset start
         yaw_noise = self.start_random_angle * np.random.random()
         # set airsim pose   
@@ -96,7 +101,9 @@ class MultirotorDynamicsAirsim():
         self.client.simPause(True)
 
     def set_action(self, action):
-
+        if not self.check_airsim_response():
+            print("AirSim not responding during set_action. Exiting...")
+            sys.exit(1)
         self.v_xy_sp = action[0] * 0.7
         self.yaw_rate_sp = action[-1] * 2
         if self.navigation_3d:
@@ -323,5 +330,16 @@ class MultirotorDynamicsAirsim():
 
     def get_distance_to_goal_2d(self):
         return math.sqrt(pow(self.get_position()[0] - self.goal_position[0], 2) + pow(self.get_position()[1] - self.goal_position[1], 2))
-
+    
+    def check_airsim_response(self):
+        try:
+            # Send a request to check if AirSim is responsive
+            response = self.client.getMultirotorState()
+            if response is None:
+                print("No response from AirSim.")
+                return False
+            return True
+        except Exception as e:
+            print(f"AirSim not responding: {e}")
+            return False
     

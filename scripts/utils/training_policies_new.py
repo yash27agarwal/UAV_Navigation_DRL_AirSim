@@ -44,8 +44,8 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
     def forward(self, observations):
         # Process depth image using MobileNetV3
         depth_image = observations['depth_image']  # Assumes observation is a dict with 'depth_image'
-        depth_image = depth_image.float()   
-        depth_image = depth_image / 255     
+        # depth_image = depth_image.float()   
+        # depth_image = depth_image / 255     
         if depth_image.shape[1] == 1:  # If the channel dimension is 1, repeat it to make it 3 channels
             depth_image = depth_image.repeat(1, 3, 1, 1)  # Convert (batch_size, 1, height, width) to (batch_size, 3, height, width)
         
@@ -57,7 +57,7 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
             observations['orientation'],
             observations['heading']
         ], dim=1)
-        vector_input = vector_input.float()
+        # vector_input = vector_input.float()
         vector_features = self.vector_extractor(vector_input)
         
         # Concatenate the features from both extractors
